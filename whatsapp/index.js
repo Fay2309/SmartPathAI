@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js'); // Librería para interactuar con WhatsApp Web [PRINCIPAL]
+const { Client, LocalAuth, Poll } = require('whatsapp-web.js'); // Librería para interactuar con WhatsApp Web [PRINCIPAL]
 const qrcode = require('qrcode-terminal'); // Para generar el código QR en la terminal
 const fs = require('fs');
 const pdf = require('pdf-parse'); // Para extraer texto de PDFs
@@ -130,28 +130,37 @@ async function hacerPreguntaDiagnostico(numeroLimpio, chatId, id_carrera, nombre
             [id_carrera, dificultad]
         );
 
-        let textoReferencia = "";
-        if (pildoras.length > 0) {
-            textoReferencia = pildoras[0].cuerpo_texto;
-        } else {
-            textoReferencia = `Conceptos fundamentales, técnicos y específicos de la carrera universitaria ${nombre_carrera}`;
-        }
+        let textoReferencia = pildoras.length > 0 ? pildoras[0].cuerpo_texto : `Conceptos fundamentales, técnicos y específicos de la carrera universitaria ${nombre_carrera}`;
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    
-        const prompt = `Actúa como un profesor universitario evaluando los conocimientos previos de un alumno de ${nombre_carrera}.
         
-        Utiliza esta información como TU FUENTE DE VERDAD SECRETA para formular la pregunta:
-        "${textoReferencia}"
+        const prompt = `Actúa como un profesor universitario evaluando los conocimientos previos de un alumno de ${nombre_carrera}.
+        Utiliza esta información como TU FUENTE DE VERDAD SECRETA para formular la pregunta: "${textoReferencia}"
 
-        REGLAS ESTRICTAS:
-        1. NO menciones frases como "Según el texto", "En el texto proporcionado" o similares. El alumno NO tiene este texto. Debes formular la pregunta evaluando el concepto directamente como conocimiento general de su carrera.
-        2. NO incluyas introducciones, saludos, asignaturas ni instrucciones (ej. "¡Excelente!", "Aquí tienes la pregunta").
-        3. Ve directo al grano: Imprime ÚNICAMENTE la pregunta de nivel *${dificultad}*, seguida inmediatamente por las opciones (A, B, C, D).
-        4. NO des la respuesta correcta ni explicaciones.`;
+        Genera UNA pregunta de opción múltiple de nivel *${dificultad}* con 4 opciones.
+        
+        REGLAS DE FORMATO CRÍTICAS:
+        1. Devuelve ÚNICAMENTE un objeto JSON válido.
+        2. NO incluyas markdown, ni comillas invertidas, ni la palabra "json".
+        3. Las opciones deben ser breves (máximo 60 caracteres cada una).
+        4. Sigue esta estructura exacta:
+        {
+            "pregunta": "El texto de la pregunta",
+            "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
+            "respuesta_correcta": "El texto exacto de la opción correcta (debe coincidir con una del array)"
+        }`;
 
         const result = await model.generateContent(prompt);
-        const preguntaIA = await result.response.text();
+        let textoIA = await result.response.text();
+        textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
+        const datosPregunta = JSON.parse(textoIA);
+
+        const { Poll } = require('whatsapp-web.js');
+        const encuesta = new Poll(datosPregunta.pregunta, datosPregunta.opciones);
+
+        const chat = await client.getChatById(chatId);
+        await chat.sendMessage(`*Pregunta ${numPregunta}/3 (Nivel: ${dificultad})* 👇`);
+        const mensajeEncuesta = await chat.sendMessage(encuesta);
 
         estadoUsuariosActivos[numeroLimpio] = {
             paso: 'EVALUANDO_DIAGNOSTICO',
@@ -159,21 +168,23 @@ async function hacerPreguntaDiagnostico(numeroLimpio, chatId, id_carrera, nombre
             nombre_carrera: nombre_carrera,
             dificultad_actual: dificultad,
             numero_pregunta: numPregunta,
-            pregunta_actual: preguntaIA,
-            puntaje: puntajeActual
+            pregunta_actual: datosPregunta.pregunta,
+            respuesta_correcta: datosPregunta.respuesta_correcta,
+            puntaje: puntajeActual,
+            id_encuesta_actual: mensajeEncuesta.id.id 
         };
 
-        await client.sendMessage(chatId, `*Pregunta ${numPregunta}/3 (Nivel: ${dificultad})*\n\n${preguntaIA}`);
     } catch (error) {
         console.error('Error generando pregunta de diagnóstico:', error);
-        await client.sendMessage(chatId, 'Hubo un error al cargar tu evaluación. Escribe *cancelar* y continuemos con el registro base.');
+        await client.sendMessage(chatId, 'Hubo un error al cargar tu evaluación. Escribe *cancelar* y continuemos.');
     }
 }
 
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox']
+        args: ['--no-sandbox'],
+        timeout: 60000
     }
 });
 
@@ -536,172 +547,59 @@ client.on('message', async (msg) => {
 
                 const contenido = archivos[0]?.contenido || "Contenido no disponible.";
 
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });  
                 const prompt = `Actúa como un tutor universitario empático. El estudiante está repasando el tema "${temaElegido}". 
                     Aquí tienes el material de estudio. Debes basarte ESTRICTAMENTE en esta información:
                     ---
                     ${contenido} 
                     ---
-                    Genera UNA sola pregunta de opción múltiple (A, B, C, D) basándote ÚNICAMENTE en el texto anterior. 
-                    NO me des la respuesta correcta todavía. Solo formatea la salida con la pregunta y las opciones claramente legibles.`;
+                    Genera UNA sola pregunta de opción múltiple con 4 opciones basándote ÚNICAMENTE en el texto. 
+                    
+                    REGLAS DE FORMATO CRÍTICAS:
+                    1. Devuelve ÚNICAMENTE un objeto JSON válido.
+                    2. NO incluyas markdown, ni comillas invertidas, ni la palabra "json".
+                    3. Las opciones deben ser breves (máximo 60 caracteres cada una).
+                    4. Sigue esta estructura exacta:
+                    {
+                        "pregunta": "El texto de la pregunta",
+                        "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
+                        "respuesta_correcta": "El texto exacto de la opción correcta (debe coincidir con una del array)"
+                    }`;
                 
-                const result = await model.generateContent(prompt);
-                const preguntaIA = await result.response.text();
-
-                estadoUsuariosActivos[numeroLimpio] = { 
-                    paso: 'ESPERANDO_RESPUESTA_SESION',
-                    tema: temaElegido,
-                    contenido: contenido,
-                    id_sesion_db: idSesionDB,
-                    historialPreguntas: [preguntaIA],
-                    temporizador: crearTemporizadorSesion(numeroLimpio, msg.from, idSesionDB),
-                    origen: origenSesion
-                };
-
-                await msg.reply(`¡Sesión Iniciada!\n\n${preguntaIA}`);
-                return;
-            }
-
-            if (estadoComando === 'ESPERANDO_RESPUESTA_SESION') {
-                const chat = await msg.getChat();
-                chat.sendStateTyping();
-
                 try {
-                    const sesion = estadoUsuariosActivos[numeroLimpio];
-                    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                    const result = await model.generateContent(prompt);
+                    let textoIA = await result.response.text();
+                    textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
+                    const datosPregunta = JSON.parse(textoIA);
+                    const encuesta = new Poll(datosPregunta.pregunta, datosPregunta.opciones);
 
-                    if (sesion.temporizador) {
-                        clearTimeout(sesion.temporizador);
-                    }
+                    await msg.reply('¡Sesión Iniciada! 👇');
+                    const mensajeEncuesta = await msg.reply(encuesta);
 
-                    const ultimaPregunta = sesion.historialPreguntas[sesion.historialPreguntas.length - 1];
-                    const promptEval = `Actúa como un tutor empático. Anteriormente le hiciste esta pregunta al estudiante sobre el tema "${sesion.tema}":
-                            ---
-                            ${ultimaPregunta}
-                            ---
-                            El estudiante respondió: "${textoUsuario}".
-                            
-                           INSTRUCCIONES DE SALIDA:
-                            1. Evalúa si la respuesta es correcta o incorrecta de acuerdo a la información original. Explícale brevemente por qué de forma constructiva. No uses emojis.
-                            2. REGLA ESTRICTA DE FORMATO: Tu texto DEBE terminar obligatoriamente con la palabra "[CORRECTA]" si acertó, o "[INCORRECTA]" si falló. Pon la etiqueta en una nueva línea al final del texto.`;
-                    const resEval = await model.generateContent(promptEval);
-                    const feedback = await resEval.response.text();
+                    estadoUsuariosActivos[numeroLimpio] = { 
+                        paso: 'ESPERANDO_VOTO_SESION', 
+                        tema: temaElegido,
+                        contenido: contenido,
+                        id_sesion_db: idSesionDB,
+                        pregunta_actual: datosPregunta.pregunta, 
+                        respuesta_correcta: datosPregunta.respuesta_correcta,
+                        id_encuesta_actual: mensajeEncuesta.id.id,
+                        temporizador: crearTemporizadorSesion(numeroLimpio, msg.from, idSesionDB),
+                        origen: origenSesion
+                    };
 
-                    const esCorrecto = feedback.includes('[CORRECTA]');
-                    const feedbackLimpio = feedback.replace(/\[CORRECTA\]/g, '').replace(/\[INCORRECTA\]/g, '').trim();
-
-                    if (sesion.origen === 'PROGRAMADO_DIARIO') {
-                        const { nuevoPuntaje, nuevaRacha, puntosCambiados } = calcularProgresion(usuarioBD.puntos_experiencia, usuarioBD.racha_actual, esCorrecto);
-                        
-                        const nuevoRango = obtenerRango(nuevoPuntaje);
-                        const rangoAnterior = obtenerRango(usuarioBD.puntos_experiencia);
-
-                        let rachaMax = usuarioBD.racha_maxima;
-                        if (nuevaRacha > rachaMax) rachaMax = nuevaRacha;
-
-                        await pool.execute(
-                            'UPDATE usuario SET puntos_experiencia = ?, racha_actual = ?, racha_maxima = ?, fecha_ultima_pildora_correcta = NOW() WHERE numero_telefono = ?',
-                            [nuevoPuntaje, nuevaRacha, rachaMax, numeroLimpio]
-                        );
-
-                        let mensajeRango = '';
-                        if (nuevoRango !== rangoAnterior && nuevoPuntaje > usuarioBD.puntos_experiencia) {
-                            mensajeRango = `\n🎉 *¡Ascenso!* Ahora eres rango *${nuevoRango}*.\n`;
-                        } else if (nuevoRango !== rangoAnterior && nuevoPuntaje < usuarioBD.puntos_experiencia) {
-                            mensajeRango = `\n⚠️ *Descenso.* Has bajado a *${nuevoRango}*. ¡Recupera tu nivel!\n`;
-                        }
-
-                        const signo = puntosCambiados > 0 ? '+' : '';
-                        await msg.reply(`${feedbackLimpio}\n\n${mensajeRango}*Progreso:* ${signo}${puntosCambiados} pts | Racha: 🔥 ${nuevaRacha}`);
-                        
-                        usuarioBD.puntos_experiencia = nuevoPuntaje;
-                        usuarioBD.racha_actual = nuevaRacha;
-                        usuarioBD.racha_maxima = rachaMax;
-                    } else {
-                        await msg.reply(feedbackLimpio);
-                    }
-
-                    if (sesion.origen === 'PROGRAMADO_DIARIO' || sesion.origen === 'PROGRAMADO_OLVIDO') {
-                        delete estadoUsuariosActivos[numeroLimpio];
-                        await msg.reply('✅ *¡Píldora completada!* Has terminado tu repaso rápido. Sigue así.\n\n_Recuerda que puedes escribir *!sesion* en cualquier momento si deseas iniciar una sesión de estudio profunda._');
-                        return; 
-                    }
-
-                    const listaPreguntasHechas = sesion.historialPreguntas.map((p, i) => `${i + 1}. ${p}`).join('\n');
-                    const promptSiguiente = `Actúa como un tutor empático. Basándote ESTRICTAMENTE en este material:
-                        ---
-                        ${sesion.contenido}
-                        ---
-                        Genera UNA NUEVA pregunta de opción múltiple (A, B, C, D) sobre el tema "${sesion.tema}". 
-                        
-                        REGLA ESTRICTA: Ya has hecho las siguientes preguntas durante esta sesión. PROHIBIDO repetir estas preguntas o evaluar exactamente el mismo concepto:
-                        ${listaPreguntasHechas}
-                        
-                        NO des la respuesta correcta todavía. Solo formatea la salida con la pregunta y las opciones claramente legibles.
-                        
-                        Has que las respuestas no estén siempre en la A, varía entre A, B, C y D.`;
-
-                    const resSiguiente = await model.generateContent(promptSiguiente);
-                    const nuevaPregunta = await resSiguiente.response.text();
-
-                    estadoUsuariosActivos[numeroLimpio].historialPreguntas.push(nuevaPregunta);
-                    estadoUsuariosActivos[numeroLimpio].temporizador = crearTemporizadorSesion(numeroLimpio, msg.from, sesion.id_sesion_db);
-
-                    await msg.reply(`*Siguiente pregunta:*\n\n${nuevaPregunta}\n\n_Escribe *!terminar* cuando desees finalizar._`);
                     return;
-                } catch (error) {
-                    console.error('Error al generar la siguiente pregunta:', error);
-                    await msg.reply('Lo siento, estoy teniendo problemas técnicos. Intenta en unos minutos.');
+
+                } catch (err) {
+                    console.error('Error al generar JSON de la pregunta:', err);
+                    await msg.reply('Tuve un problema al formular la pregunta. Intenta seleccionar el tema nuevamente.');
+                    delete estadoUsuariosActivos[numeroLimpio];
+                    return;
                 }
             }
 
-            if (estadoComando === 'EVALUANDO_DIAGNOSTICO') {
-                const estado = estadoUsuariosActivos[numeroLimpio];
-                const chat = await msg.getChat();
-                chat.sendStateTyping();
-
-                try {
-                    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-                    
-                    const promptEval = `Actúa como un tutor evaluando a un alumno. 
-                    Pregunta: "${estado.pregunta_actual}"
-                    Respuesta del alumno: "${textoUsuario}"
-                    
-                    INSTRUCCIONES DE SALIDA:
-                    1. Explica brevemente por qué es correcta o incorrecta de manera motivadora (sin emojis).
-                    2. REGLA ESTRICTA DE FORMATO: Tu texto DEBE terminar obligatoriamente con la etiqueta [CORRECTA] si acertó, o [INCORRECTA] si falló. Pon la etiqueta en una nueva línea al final del texto y no escribas nada después de ella.`;
-
-                    const resEval = await model.generateContent(promptEval);
-                    const feedback = await resEval.response.text();
-
-                    if (feedback.includes('[CORRECTA]')) {
-                        estado.puntaje += 1;
-                    }
-
-                    const feedbackLimpio = feedback.replace(/\[CORRECTA\]/g, '').replace(/\[INCORRECTA\]/g, '').trim();
-                    await msg.reply(feedbackLimpio);
-
-                    if (estado.numero_pregunta === 1) {
-                        await hacerPreguntaDiagnostico(numeroLimpio, msg.from, estado.id_carrera, estado.nombre_carrera, 'Intermedio', 2, estado.puntaje);
-                    } else if (estado.numero_pregunta === 2) {
-                        await hacerPreguntaDiagnostico(numeroLimpio, msg.from, estado.id_carrera, estado.nombre_carrera, 'Avanzado', 3, estado.puntaje);
-                    } else {
-                        let nivelFinal = 'Principiante';
-                        if (estado.puntaje === 2) nivelFinal = 'Intermedio';
-                        if (estado.puntaje === 3) nivelFinal = 'Avanzado';
-
-                        await pool.execute(
-                            'UPDATE usuario SET nivel_conocimiento = ?, diagnostico_completo = 1 WHERE numero_telefono = ?', 
-                            [nivelFinal, numeroLimpio]
-                        );
-
-                        await msg.reply(`*¡Diagnóstico Completado!*\n\nLograste ${estado.puntaje} de 3 aciertos.\n\nHe configurado tu nivel inicial en la carrera de ${estado.nombre_carrera} como: *${nivelFinal}*.\n\n¡Ya puedes enviarme tus documentos para comenzar a estudiar o escribir *!ayuda* para ver mis comandos!`);
-                        delete estadoUsuariosActivos[numeroLimpio];
-                    }
-                } catch (e) {
-                    console.error('Error en diagnóstico:', e);
-                    await msg.reply('Tuve un problema procesando tu respuesta. ¿Podemos intentarlo de nuevo?');
-                }
+            if (estadoComando === 'ESPERANDO_VOTO_SESION' || estadoComando === 'EVALUANDO_DIAGNOSTICO') {
+                await msg.reply('👆 Por favor, responde seleccionando una de las opciones en la encuesta de arriba. (O escribe *!terminar* para salir de la sesión).');
                 return;
             }
         }
@@ -796,6 +694,164 @@ client.on('message', async (msg) => {
             await msg.reply('Hubo un problema al intentar descargar tu archivo.');
         }
         return; 
+    }
+});
+
+/*
+    Manejo de respuestas en ENCUESTAS 
+*/
+client.on('vote_update', async (vote) => {
+    if (!vote.selectedOptions || vote.selectedOptions.length === 0) return;
+
+    const voterId = vote.voter;
+    let numeroLimpio = '';
+    try {
+        const contactoVotante = await client.getContactById(voterId);
+        numeroLimpio = contactoVotante.number || contactoVotante.id.user;
+    } catch (e) {
+        return;
+    }
+
+    const sesion = estadoUsuariosActivos[numeroLimpio];
+    if (!sesion || (sesion.paso !== 'ESPERANDO_VOTO_SESION' && sesion.paso !== 'EVALUANDO_DIAGNOSTICO')) return;
+
+    if (vote.parentMsgKey.id !== sesion.id_encuesta_actual) {
+        return; 
+    }
+
+    const flujoActual = sesion.paso;
+    estadoUsuariosActivos[numeroLimpio].paso = 'PROCESANDO_VOTO';
+    
+    const chatId = `${numeroLimpio}@c.us`;
+    const chat = await client.getChatById(chatId);
+    chat.sendStateTyping();
+
+    try {
+        if (sesion.temporizador) clearTimeout(sesion.temporizador);
+
+        const opcionElegida = vote.selectedOptions[0].name;
+        const esCorrecto = opcionElegida === sesion.respuesta_correcta;
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        if (flujoActual === 'ESPERANDO_VOTO_SESION') {
+            const [rows] = await pool.execute('SELECT * FROM usuario WHERE numero_telefono = ?', [numeroLimpio]);
+            if (rows.length === 0) return;
+            const usuarioBD = rows[0];
+            
+            const promptEval = `Actúa como un tutor empático.
+            La pregunta era: "${sesion.pregunta_actual}"
+            El estudiante seleccionó: "${opcionElegida}"
+            La respuesta correcta era: "${sesion.respuesta_correcta}"
+            Explícale brevemente y de forma constructiva por qué su elección es ${esCorrecto ? 'correcta' : 'incorrecta'}. No uses emojis.`;
+            
+            const resEval = await model.generateContent(promptEval);
+            const feedbackLimpio = await resEval.response.text();
+
+            if (sesion.origen === 'PROGRAMADO_DIARIO') {
+                const { nuevoPuntaje, nuevaRacha, puntosCambiados } = calcularProgresion(usuarioBD.puntos_experiencia, usuarioBD.racha_actual, esCorrecto);
+                const nuevoRango = obtenerRango(nuevoPuntaje);
+                const rangoAnterior = obtenerRango(usuarioBD.puntos_experiencia);
+                let rachaMax = usuarioBD.racha_maxima;
+                if (nuevaRacha > rachaMax) rachaMax = nuevaRacha;
+
+                await pool.execute(
+                    'UPDATE usuario SET puntos_experiencia = ?, racha_actual = ?, racha_maxima = ?, fecha_ultima_pildora_correcta = NOW() WHERE numero_telefono = ?',
+                    [nuevoPuntaje, nuevaRacha, rachaMax, numeroLimpio]
+                );
+
+                let mensajeRango = '';
+                if (nuevoRango !== rangoAnterior && nuevoPuntaje > usuarioBD.puntos_experiencia) {
+                    mensajeRango = `\n🎉 *¡Ascenso!* Ahora eres rango *${nuevoRango}*.\n`;
+                } else if (nuevoRango !== rangoAnterior && nuevoPuntaje < usuarioBD.puntos_experiencia) {
+                    mensajeRango = `\n⚠️ *Descenso.* Has bajado a *${nuevoRango}*. ¡Recupera tu nivel!\n`;
+                }
+                const signo = puntosCambiados > 0 ? '+' : '';
+                await chat.sendMessage(`${feedbackLimpio}\n\n${mensajeRango}*Progreso:* ${signo}${puntosCambiados} pts | Racha: 🔥 ${nuevaRacha}`);
+            } else {
+                await chat.sendMessage(feedbackLimpio);
+            }
+
+            if (sesion.origen === 'PROGRAMADO_DIARIO' || sesion.origen === 'PROGRAMADO_OLVIDO') {
+                delete estadoUsuariosActivos[numeroLimpio];
+                await chat.sendMessage('✅ *¡Repaso completado!* Has terminado tu dosis de estudio.\n\n_Escribe *!sesion* si deseas iniciar un estudio profundo._');
+                return; 
+            }
+
+            const promptSiguiente = `Actúa como un tutor empático. Basándote ESTRICTAMENTE en este material:
+                ---
+                ${sesion.contenido}
+                ---
+                Genera UNA NUEVA pregunta de opción múltiple con 4 opciones. 
+                NO repitas la pregunta anterior: "${sesion.pregunta_actual}".
+                
+                REGLAS DE FORMATO CRÍTICAS:
+                1. Devuelve ÚNICAMENTE un objeto JSON válido.
+                2. NO incluyas markdown, ni comillas invertidas, ni la palabra "json".
+                3. Las opciones deben ser breves (máximo 60 caracteres cada una).
+                4. Sigue esta estructura exacta:
+                {
+                    "pregunta": "El texto de la pregunta",
+                    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
+                    "respuesta_correcta": "El texto exacto de la opción correcta"
+                }`;
+
+            const resSiguiente = await model.generateContent(promptSiguiente);
+            let textoIA = await resSiguiente.response.text();
+            textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
+            const datosPregunta = JSON.parse(textoIA);
+
+            const { Poll } = require('whatsapp-web.js');
+            const nuevaEncuesta = new Poll(datosPregunta.pregunta, datosPregunta.opciones);
+
+            await chat.sendMessage('Siguiente pregunta: 👇 (Puedes terminar la sesión en cualquier momento escribiendo *!terminar*)');
+            const mensajeNuevaEncuesta = await chat.sendMessage(nuevaEncuesta);
+
+            estadoUsuariosActivos[numeroLimpio].pregunta_actual = datosPregunta.pregunta;
+            estadoUsuariosActivos[numeroLimpio].respuesta_correcta = datosPregunta.respuesta_correcta;
+            estadoUsuariosActivos[numeroLimpio].id_encuesta_actual = mensajeNuevaEncuesta.id.id;
+            estadoUsuariosActivos[numeroLimpio].temporizador = crearTemporizadorSesion(numeroLimpio, chatId, sesion.id_sesion_db);
+            estadoUsuariosActivos[numeroLimpio].paso = 'ESPERANDO_VOTO_SESION';
+        }
+        else if (flujoActual === 'EVALUANDO_DIAGNOSTICO') {
+            const promptEval = `Actúa como un tutor evaluando a un alumno. 
+            Pregunta: "${sesion.pregunta_actual}"
+            El alumno seleccionó: "${opcionElegida}"
+            La respuesta correcta era: "${sesion.respuesta_correcta}"
+            
+            Explica brevemente por qué es ${esCorrecto ? 'correcta' : 'incorrecta'} de manera motivadora (sin emojis).`;
+
+            const resEval = await model.generateContent(promptEval);
+            const feedback = await resEval.response.text();
+            
+            if (esCorrecto) {
+                sesion.puntaje += 1; 
+            }
+
+            await chat.sendMessage(feedback.trim());
+
+            if (sesion.numero_pregunta === 1) {
+                await hacerPreguntaDiagnostico(numeroLimpio, chatId, sesion.id_carrera, sesion.nombre_carrera, 'Intermedio', 2, sesion.puntaje);
+            } else if (sesion.numero_pregunta === 2) {
+                await hacerPreguntaDiagnostico(numeroLimpio, chatId, sesion.id_carrera, sesion.nombre_carrera, 'Avanzado', 3, sesion.puntaje);
+            } else {
+                let nivelFinal = 'Principiante';
+                if (sesion.puntaje === 2) nivelFinal = 'Intermedio';
+                if (sesion.puntaje === 3) nivelFinal = 'Avanzado';
+
+                await pool.execute(
+                    'UPDATE usuario SET nivel_conocimiento = ?, diagnostico_completo = 1 WHERE numero_telefono = ?', 
+                    [nivelFinal, numeroLimpio]
+                );
+
+                await chat.sendMessage(`*¡Diagnóstico Completado!*\n\nLograste ${sesion.puntaje} de 3 aciertos.\n\nHe configurado tu nivel en la carrera de ${sesion.nombre_carrera} como: *${nivelFinal}*.\n\n¡Ya puedes enviarme tus documentos para comenzar a estudiar o escribir *!ayuda* para ver mis comandos!`);
+                delete estadoUsuariosActivos[numeroLimpio];
+            }
+        }
+
+    } catch (error) {
+        console.error('Error al procesar el voto:', error);
+        await chat.sendMessage('Lo siento, tuve un problema técnico al procesar tu respuesta. Intenta de nuevo.');
+        estadoUsuariosActivos[numeroLimpio].paso = flujoActual; 
     }
 });
 
