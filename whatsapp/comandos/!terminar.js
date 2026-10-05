@@ -2,8 +2,8 @@ module.exports = {
     execute: async (msg, numeroLimpio, usuarioBD, estadoUsuariosActivos, pool) => {
         const sesion = estadoUsuariosActivos[numeroLimpio];
 
-        if (!estadoUsuariosActivos[numeroLimpio] || (estadoUsuariosActivos[numeroLimpio].paso !== 'ESPERANDO_VOTO_SESION' && estadoUsuariosActivos[numeroLimpio].paso !== 'PROCESANDO_VOTO')) {
-            await msg.reply('Bot: Actualmente no tienes ninguna sesión de estudio activa.');
+        if (!estadoUsuariosActivos[numeroLimpio] || (estadoUsuariosActivos[numeroLimpio].paso !== 'ESPERANDO_RESPUESTA_SESION' && estadoUsuariosActivos[numeroLimpio].paso !== 'PROCESANDO_VOTO')) {
+            await msg.reply('Actualmente no tienes ninguna sesión de estudio activa.');
             return;
         }
 
