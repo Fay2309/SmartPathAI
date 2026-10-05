@@ -1,0 +1,449 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index 800109e..7d792b3 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -1399,8 +1399,8 @@ class Client extends EventEmitter {
+                 content instanceof Buttons,
+                 content instanceof List,
+                 Array.isArray(content) &&
+-                    content.length > 0 &&
+-                    content[0] instanceof Contact,
++                content.length > 0 &&
++                content[0] instanceof Contact,
+             ].includes(true)
+         ) {
+             console.warn(
+@@ -1421,8 +1421,8 @@ class Client extends EventEmitter {
+                 content instanceof Buttons,
+                 content instanceof List,
+                 Array.isArray(content) &&
+-                    content.length > 0 &&
+-                    content[0] instanceof Contact,
++                content.length > 0 &&
++                content[0] instanceof Contact,
+             ].includes(true)
+         ) {
+             console.warn(
+@@ -1804,10 +1804,10 @@ class Client extends EventEmitter {
+             return !pinnedMsgs.length
+                 ? []
+                 : await Promise.all(
+-                      pinnedMsgs.map((msg) =>
+-                          window.WWebJS.getMessageModel(msg),
+-                      ),
+-                  );
++                    pinnedMsgs.map((msg) =>
++                        window.WWebJS.getMessageModel(msg),
++                    ),
++                );
+         }, chatId);
+ 
+         return pinnedMsgs.map((msg) => new Message(this, msg));
+@@ -2109,9 +2109,9 @@ class Client extends EventEmitter {
+                         .Chat.find(chatId));
+                 action === 'MUTE'
+                     ? await chat.mute.mute({
+-                          expiration: unmuteDateTs,
+-                          sendDevice: true,
+-                      })
++                        expiration: unmuteDateTs,
++                        sendDevice: true,
++                    })
+                     : await chat.mute.unmute({ sendDevice: true });
+                 return {
+                     isMuted: chat.mute.expiration !== 0,
+@@ -2395,9 +2395,9 @@ class Client extends EventEmitter {
+                                 window
+                                     .require('WAWebCollections')
+                                     .Chat.get(participant.wid) ||
+-                                    (await window
+-                                        .require('WAWebCollections')
+-                                        .Chat.find(participant.wid)),
++                                (await window
++                                    .require('WAWebCollections')
++                                    .Chat.find(participant.wid)),
+                                 createGroupResult.wid._serialized,
+                                 createGroupResult.subject,
+                                 participant.invite_code,
+@@ -2662,11 +2662,11 @@ class Client extends EventEmitter {
+ 
+                 countryCodes =
+                     countryCodes.length === 1 &&
+-                    countryCodes[0] === currentRegion
++                        countryCodes[0] === currentRegion
+                         ? countryCodes
+                         : countryCodes.filter((code) =>
+-                              Object.keys(countryCodesIso).includes(code),
+-                          );
++                            Object.keys(countryCodesIso).includes(code),
++                        );
+ 
+                 const viewTypeMapping = {
+                     0: 'RECOMMENDED',
+@@ -2705,12 +2705,12 @@ class Client extends EventEmitter {
+ 
+                 return channels
+                     ? await Promise.all(
+-                          channels.map((channel) =>
+-                              window.WWebJS.getChatModel(channel, {
+-                                  isChannel: true,
+-                              }),
+-                          ),
+-                      )
++                        channels.map((channel) =>
++                            window.WWebJS.getChatModel(channel, {
++                                isChannel: true,
++                            }),
++                        ),
++                    )
+                     : [];
+             },
+             searchOptions,
+@@ -3409,7 +3409,7 @@ class Client extends EventEmitter {
+         const pollVotes = await this.pupPage.evaluate(async (msg) => {
+             const msgKey = window
+                 .require('WAWebMsgKey')
+-                .fromString(msg.id._serialized);
++                .fromString(msg.id._serialized || msg.id.$1);
+             let pollVotes = await window
+                 .require('WAWebPollsVotesSchema')
+                 .getTable()
+diff --git a/node_modules/whatsapp-web.js/src/structures/Message.js b/node_modules/whatsapp-web.js/src/structures/Message.js
+index dd977e8..a62bb2a 100644
+--- a/node_modules/whatsapp-web.js/src/structures/Message.js
++++ b/node_modules/whatsapp-web.js/src/structures/Message.js
+@@ -107,8 +107,8 @@ class Message extends Base {
+                 ? 'android'
+                 : typeof data.id.id === 'string' &&
+                     data.id.id.substring(0, 2) === '3A'
+-                  ? 'ios'
+-                  : 'web';
++                    ? 'ios'
++                    : 'web';
+         /**
+          * Indicates if the message was forwarded
+          * @type {boolean}
+@@ -194,8 +194,8 @@ class Message extends Base {
+             data.type === MessageTypes.CONTACT_CARD_MULTI
+                 ? data.vcardList.map((c) => c.vcard)
+                 : data.type === MessageTypes.CONTACT_CARD
+-                  ? [data.body]
+-                  : [];
++                    ? [data.body]
++                    : [];
+ 
+         /**
+          * Group Invite Data
+@@ -204,21 +204,21 @@ class Message extends Base {
+         this.inviteV4 =
+             data.type === MessageTypes.GROUP_INVITE
+                 ? {
+-                      inviteCode: data.inviteCode,
+-                      inviteCodeExp: data.inviteCodeExp,
+-                      groupId: data.inviteGrp,
+-                      groupName: data.inviteGrpName,
+-                      fromId:
+-                          typeof data.from === 'object' &&
+-                          '_serialized' in data.from
+-                              ? data.from._serialized
+-                              : data.from,
+-                      toId:
+-                          typeof data.to === 'object' &&
+-                          '_serialized' in data.to
+-                              ? data.to._serialized
+-                              : data.to,
+-                  }
++                    inviteCode: data.inviteCode,
++                    inviteCodeExp: data.inviteCodeExp,
++                    groupId: data.inviteGrp,
++                    groupName: data.inviteGrpName,
++                    fromId:
++                        typeof data.from === 'object' &&
++                            '_serialized' in data.from
++                            ? data.from._serialized
++                            : data.from,
++                    toId:
++                        typeof data.to === 'object' &&
++                            '_serialized' in data.to
++                            ? data.to._serialized
++                            : data.to,
++                }
+                 : undefined;
+ 
+         /**
+@@ -336,8 +336,8 @@ class Message extends Base {
+             this.isSentCagPollCreation = data.isSentCagPollCreation;
+             this.messageSecret = data.messageSecret
+                 ? Object.keys(data.messageSecret).map(
+-                      (key) => data.messageSecret[key],
+-                  )
++                    (key) => data.messageSecret[key],
++                )
+                 : [];
+         }
+ 
+@@ -636,14 +636,14 @@ class Message extends Base {
+                         '2.3000.0',
+                     )
+                         ? Cmd.sendRevokeMsgs(
+-                              chat,
+-                              { list: [msg], type: 'message' },
+-                              { clearMedia: clearMedia },
+-                          )
++                            chat,
++                            { list: [msg], type: 'message' },
++                            { clearMedia: clearMedia },
++                        )
+                         : Cmd.sendRevokeMsgs(chat, [msg], {
+-                              clearMedia: true,
+-                              type: msg.id.fromMe ? 'Sender' : 'Admin',
+-                          });
++                            clearMedia: true,
++                            type: msg.id.fromMe ? 'Sender' : 'Admin',
++                        });
+                 }
+ 
+                 return window.WWebJS.compareWwebVersions(
+@@ -652,10 +652,10 @@ class Message extends Base {
+                     '2.3000.0',
+                 )
+                     ? Cmd.sendDeleteMsgs(
+-                          chat,
+-                          { list: [msg], type: 'message' },
+-                          clearMedia,
+-                      )
++                        chat,
++                        { list: [msg], type: 'message' },
++                        clearMedia,
++                    )
+                     : Cmd.sendDeleteMsgs(chat, [msg], clearMedia);
+             },
+             this.id._serialized,
+@@ -777,7 +777,7 @@ class Message extends Base {
+                     },
+                     (Date.now() - msg.t * 1000 < 1250 &&
+                         Math.floor(Math.random() * (1200 - 1100 + 1)) + 1100) ||
+-                        0,
++                    0,
+                 );
+             });
+         }, this.id._serialized);
+@@ -996,7 +996,7 @@ class Message extends Base {
+      * @returns {Promise<PollVote[]>}
+      */
+     async getPollVotes() {
+-        return await this.client.getPollVotes(this.id._serialized);
++        return await this.client.getPollVotes(this.id._serialized || this.id.$1);
+     }
+ 
+     /**
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 540078a..acfc966 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -43,14 +43,14 @@ exports.LoadUtils = () => {
+         return operator === '>'
+             ? lOperand > rOperand
+             : operator === '>='
+-              ? lOperand >= rOperand
+-              : operator === '<'
+-                ? lOperand < rOperand
+-                : operator === '<='
+-                  ? lOperand <= rOperand
+-                  : operator === '='
+-                    ? lOperand === rOperand
+-                    : false;
++                ? lOperand >= rOperand
++                : operator === '<'
++                    ? lOperand < rOperand
++                    : operator === '<='
++                        ? lOperand <= rOperand
++                        : operator === '='
++                            ? lOperand === rOperand
++                            : false;
+     };
+ 
+     /**
+@@ -156,14 +156,14 @@ exports.LoadUtils = () => {
+                 options.sendMediaAsSticker && !isChannel && !isStatus
+                     ? await window.WWebJS.processStickerData(options.media)
+                     : await window.WWebJS.processMediaData(options.media, {
+-                          forceSticker: options.sendMediaAsSticker,
+-                          forceGif: options.sendVideoAsGif,
+-                          forceVoice: options.sendAudioAsVoice,
+-                          forceDocument: options.sendMediaAsDocument,
+-                          forceMediaHd: options.sendMediaAsHd,
+-                          sendToChannel: isChannel,
+-                          sendToStatus: isStatus,
+-                      });
++                        forceSticker: options.sendMediaAsSticker,
++                        forceGif: options.sendVideoAsGif,
++                        forceVoice: options.sendAudioAsVoice,
++                        forceDocument: options.sendMediaAsDocument,
++                        forceMediaHd: options.sendMediaAsHd,
++                        sendToChannel: isChannel,
++                        sendToStatus: isStatus,
++                    });
+             mediaOptions.caption = options.caption;
+             content = options.sendMediaAsSticker
+                 ? undefined
+@@ -270,11 +270,11 @@ exports.LoadUtils = () => {
+                     eventSendOptions.callType === 'none'
+                         ? null
+                         : await window
+-                              .require('WAWebGenerateEventCallLink')
+-                              .createEventCallLink(
+-                                  startTimeTs,
+-                                  eventSendOptions.callType,
+-                              ),
++                            .require('WAWebGenerateEventCallLink')
++                            .createEventCallLink(
++                                startTimeTs,
++                                eventSendOptions.callType,
++                            ),
+                 isEventCanceled: eventSendOptions.isEventCanceled,
+                 messageSecret:
+                     Array.isArray(messageSecret) && messageSecret.length === 32
+@@ -510,16 +510,16 @@ exports.LoadUtils = () => {
+                         message.type === 'chat'
+                             ? 'text'
+                             : isMedia
+-                              ? 'media'
+-                              : 'pollCreation',
++                                ? 'media'
++                                : 'pollCreation',
+                     newsletterJid: chat.id.toJid(),
+                     ...(isMedia
+                         ? {
+-                              mediaMetadata: msg.avParams(),
+-                              mediaHandle: isMedia
+-                                  ? mediaOptions.mediaHandle
+-                                  : null,
+-                          }
++                            mediaMetadata: msg.avParams(),
++                            mediaHandle: isMedia
++                                ? mediaOptions.mediaHandle
++                                : null,
++                        }
+                         : {}),
+                 });
+ 
+@@ -564,11 +564,11 @@ exports.LoadUtils = () => {
+ 
+             await window
+                 .require('WAWebSendStatusMsgAction')
+-                [
+-                    isMedia
+-                        ? 'sendStatusMediaMsgAction'
+-                        : 'sendStatusTextMsgAction'
+-                ](...(isMedia ? [msg, mediaUpdate] : [statusOptions]));
++            [
++                isMedia
++                    ? 'sendStatusMediaMsgAction'
++                    : 'sendStatusTextMsgAction'
++            ](...(isMedia ? [msg, mediaUpdate] : [statusOptions]));
+ 
+             return msg;
+         }
+@@ -582,7 +582,7 @@ exports.LoadUtils = () => {
+ 
+         return window
+             .require('WAWebCollections')
+-            .Msg.get(newMsgKey._serialized);
++            .Msg.get(newMsgKey.$1);
+     };
+ 
+     window.WWebJS.editMessage = async (msg, content, options = {}) => {
+@@ -764,9 +764,9 @@ exports.LoadUtils = () => {
+             mediaType,
+             ...(sendToChannel
+                 ? {
+-                      calculateToken: window.require('WAMediaCalculateFilehash')
+-                          .getRandomFilehash,
+-                  }
++                    calculateToken: window.require('WAMediaCalculateFilehash')
++                        .getRandomFilehash,
++                }
+                 : {}),
+         };
+ 
+@@ -983,15 +983,15 @@ exports.LoadUtils = () => {
+         if (model.msgs && model.msgs.length) {
+             const lastMessage = chat.lastReceivedKey
+                 ? window
+-                      .require('WAWebCollections')
+-                      .Msg.get(chat.lastReceivedKey._serialized) ||
+-                  (
+-                      await window
+-                          .require('WAWebCollections')
+-                          .Msg.getMessagesById([
+-                              chat.lastReceivedKey._serialized,
+-                          ])
+-                  )?.messages?.[0]
++                    .require('WAWebCollections')
++                    .Msg.get(chat.lastReceivedKey._serialized) ||
++                (
++                    await window
++                        .require('WAWebCollections')
++                        .Msg.getMessagesById([
++                            chat.lastReceivedKey._serialized,
++                        ])
++                )?.messages?.[0]
+                 : null;
+             lastMessage &&
+                 (model.lastMessage =
+@@ -1082,7 +1082,7 @@ exports.LoadUtils = () => {
+                     await window
+                         .require('WAWebCollections')
+                         .BusinessProfile.find(contact.id)
+-                        .catch(() => {});
++                        .catch(() => { });
+                 }
+                 return window.WWebJS.getContactModel(contact);
+             }),
+@@ -1569,25 +1569,25 @@ exports.LoadUtils = () => {
+                         const [_] = value.participant.map((p) => {
+                             const error = toApprove
+                                 ? value.participant[0]
+-                                      .membershipRequestsActionAcceptParticipantMixins
+-                                      ?.value.error
++                                    .membershipRequestsActionAcceptParticipantMixins
++                                    ?.value.error
+                                 : value.participant[0]
+-                                      .membershipRequestsActionRejectParticipantMixins
+-                                      ?.value.error;
++                                    .membershipRequestsActionRejectParticipantMixins
++                                    ?.value.error;
+                             return {
+                                 requesterId: window
+                                     .require('WAWebWidFactory')
+                                     .createWid(p.jid)._serialized,
+                                 ...(error
+                                     ? {
+-                                          error: +error,
+-                                          message:
+-                                              membReqResCodes[error] ||
+-                                              membReqResCodes.default,
+-                                      }
++                                        error: +error,
++                                        message:
++                                            membReqResCodes[error] ||
++                                            membReqResCodes.default,
++                                    }
+                                     : {
+-                                          message: `${toApprove ? 'Approved' : 'Rejected'} successfully`,
+-                                      }),
++                                        message: `${toApprove ? 'Approved' : 'Rejected'} successfully`,
++                                    }),
+                             };
+                         });
+                         _ && result.push(_);
+@@ -1606,7 +1606,7 @@ exports.LoadUtils = () => {
+                 sleep &&
+                     participantArgs.length > 1 &&
+                     participantArgs.indexOf(participant) !==
+-                        participantArgs.length - 1 &&
++                    participantArgs.length - 1 &&
+                     (await new Promise((resolve) =>
+                         setTimeout(resolve, _getSleepTime(sleep)),
+                     ));
