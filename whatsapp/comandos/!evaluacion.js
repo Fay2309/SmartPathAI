@@ -16,9 +16,6 @@ module.exports = {
             const { id_disciplina, nombre_disciplina, nombre_carrera } = info[0];
 
             await msg.reply(`¡Excelente iniciativa, ${usuarioBD.nombre}! Vamos a poner a prueba tus conocimientos en *${nombre_carrera}*.\n\nTe haré 3 preguntas para recalcular tu nivel actual. Generando la primera pregunta...`);
-            
-            const chat = await msg.getChat();
-            chat.sendStateTyping();
 
             await hacerPreguntaDiagnostico(numeroLimpio, msg.from, info[0].id_carrera, nombre_carrera, 'Principiante', 1, 0);
 

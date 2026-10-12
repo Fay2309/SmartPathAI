@@ -17,7 +17,6 @@ const comandos = {
     '!sesion': require('./comandos/!sesion'),
     '!terminar': require('./comandos/!terminar'),
     '!evaluacion': require('./comandos/!evaluacion'),
-    '!generarpildoras': require('./comandos/!generarpildoras'),
     '!progreso': require('./comandos/!progreso'),
     '!desactivar': require('./comandos/!desactivar'),
     '!reanudar': require('./comandos/!reanudar')
@@ -562,9 +561,7 @@ Estructura exacta:
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: true,
-        executablePath: '/usr/bin/chromium-browser',
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
         timeout: 60000
     }
 });
@@ -741,11 +738,6 @@ client.on('ready', async () => {
 
                 try {
                     await client.sendMessage(chatId, mensajeIntro);
-
-                    try {
-                        const chat = await client.getChatById(chatId);
-                        chat.sendStateTyping();
-                    } catch (e) { }
 
                     await hacerPreguntaDiagnostico(
                         user.numero_telefono,
