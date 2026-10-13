@@ -17,12 +17,13 @@ const comandos = {
     '!sesion': require('./comandos/!sesion'),
     '!terminar': require('./comandos/!terminar'),
     '!evaluacion': require('./comandos/!evaluacion'),
-    '!generarpildoras': require('./comandos/!generarpildoras'),
     '!progreso': require('./comandos/!progreso'),
     '!desactivar': require('./comandos/!desactivar'),
     '!reanudar': require('./comandos/!reanudar')
 };
 
+let clienteWhatsappListo = false;
+let fallosWatchdog = 0;
 const usuariosEnRegistro = {};
 const estadoUsuariosActivos = {};
 async function resolverNumeroReal(identificador, contacto) {
@@ -563,8 +564,8 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        executablePath: '/usr/bin/chromium-browser',
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        executablePath: '/usr/bin/google-chrome-stable',
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage','--disable-gpu'],
         timeout: 60000
     }
 });
@@ -574,7 +575,29 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', async () => {
+    clienteWhatsappListo = true;
+    fallosWatchdog = 0;
     console.log('¡Bot funcionando!');
+if (client.pupBrowser) {
+    client.pupBrowser.once('disconnected', () => {
+        console.error(
+            '[PUPPETEER] Chrome se desconectó. Reiniciando proceso...'
+        );
+
+        process.exit(1);
+    });
+}
+
+if (client.pupPage) {
+    client.pupPage.once('error', (error) => {
+        console.error(
+            '[PUPPETEER] La página de WhatsApp falló:',
+            error
+        );
+
+        process.exit(1);
+    });
+}
     const myNumberId = client.info.wid._serialized;
 
     try {
@@ -767,6 +790,80 @@ client.on('ready', async () => {
         }
     });
 });
+
+client.on('disconnected', (reason) => {
+    clienteWhatsappListo = false;
+
+    console.error(
+        '[WHATSAPP] Cliente desconectado:',
+        reason
+    );
+
+    // PM2 volverá a iniciar index.js
+    setTimeout(() => {
+        process.exit(1);
+    }, 3000);
+});
+
+setInterval(async () => {
+
+    if (!clienteWhatsappListo) {
+        return;
+    }
+
+    try {
+
+        const estado = await Promise.race([
+            client.getState(),
+
+            new Promise((_, reject) =>
+                setTimeout(
+                    () => reject(
+                        new Error(
+                            'Timeout consultando estado de WhatsApp'
+                        )
+                    ),
+                    15000
+                )
+            )
+        ]);
+
+        console.log(
+            `[WATCHDOG] Estado WhatsApp: ${estado}`
+        );
+
+        if (estado === 'CONNECTED') {
+            fallosWatchdog = 0;
+            return;
+        }
+
+        fallosWatchdog++;
+
+        console.warn(
+            `[WATCHDOG] Estado no saludable: ${estado}. ` +
+            `Fallo ${fallosWatchdog}/3`
+        );
+
+    } catch (error) {
+
+        fallosWatchdog++;
+
+        console.error(
+            `[WATCHDOG] Error consultando WhatsApp (${fallosWatchdog}/3):`,
+            error.message
+        );
+    }
+
+    if (fallosWatchdog >= 3) {
+
+        console.error(
+            '[WATCHDOG] WhatsApp/Puppeteer no responde. Reiniciando proceso...'
+        );
+
+        process.exit(1);
+    }
+
+}, 2 * 60 * 1000);
 
 /*
     Manejo de mensajes de usuarios externos (no en mi chat)
@@ -1300,4 +1397,7 @@ client.on('message', async (msg) => {
 //     }
 // });
 
-client.initialize();
+client.initialize()
+    .catch(error => {
+        console.error('ERROR EN INITIALIZE:', error);
+    });
