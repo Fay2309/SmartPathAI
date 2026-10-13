@@ -151,6 +151,116 @@ function crearTemporizadorSesion(numeroLimpio, chatId, idSesionDB) {
     }, 15 * 60 * 1000);
 }
 
+async function generarPreguntaJSON(prompt, maxIntentos = 3) {
+
+    const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2
+        }
+    });
+
+    let ultimoError = null;
+
+    for (let intento = 1; intento <= maxIntentos; intento++) {
+
+        try {
+
+            const result =
+                await model.generateContent(prompt);
+
+            let textoIA =
+                await result.response.text();
+
+            console.log(
+                `[JSON IA] Intento ${intento}:`,
+                textoIA
+            );
+
+            textoIA = textoIA
+                .replace(/```json/gi, '')
+                .replace(/```/gi, '')
+                .trim();
+
+            /*
+             * Protección adicional:
+             * Si Gemini agregó texto antes/después del JSON,
+             * intentamos quedarnos únicamente con {...}
+             */
+            const inicioJSON =
+                textoIA.indexOf('{');
+
+            const finJSON =
+                textoIA.lastIndexOf('}');
+
+            if (
+                inicioJSON !== -1 &&
+                finJSON !== -1 &&
+                finJSON > inicioJSON
+            ) {
+                textoIA =
+                    textoIA.substring(
+                        inicioJSON,
+                        finJSON + 1
+                    );
+            }
+
+            const datosPregunta =
+                JSON.parse(textoIA);
+
+            /*
+             * Validación estructural
+             */
+            if (
+                !datosPregunta ||
+                typeof datosPregunta.pregunta !== 'string' ||
+                !Array.isArray(datosPregunta.opciones) ||
+                typeof datosPregunta.respuesta_correcta !== 'string'
+            ) {
+                throw new Error(
+                    'El JSON no contiene la estructura esperada.'
+                );
+            }
+
+            if (datosPregunta.opciones.length < 2) {
+                throw new Error(
+                    'El JSON contiene menos de dos opciones.'
+                );
+            }
+
+            /*
+             * También comprobamos que la respuesta
+             * realmente exista entre las opciones.
+             */
+            if (
+                !datosPregunta.opciones.includes(
+                    datosPregunta.respuesta_correcta
+                )
+            ) {
+                throw new Error(
+                    'La respuesta correcta no coincide con ninguna opción.'
+                );
+            }
+
+            return datosPregunta;
+
+        } catch (error) {
+
+            ultimoError = error;
+
+            console.error(
+                `[JSON IA] Falló intento ${intento}/${maxIntentos}:`,
+                error.message
+            );
+        }
+    }
+
+    throw new Error(
+        `Gemini no generó una pregunta JSON válida después de ${maxIntentos} intentos. Último error: ${ultimoError?.message}`
+    );
+}
+
 async function hacerPreguntaDiagnostico(numeroLimpio, chatId, id_carrera, nombre_carrera, dificultad, numPregunta, puntajeActual) {
     try {
         const [pildoras] = await pool.execute(
@@ -159,8 +269,6 @@ async function hacerPreguntaDiagnostico(numeroLimpio, chatId, id_carrera, nombre
         );
 
         let textoReferencia = pildoras.length > 0 ? pildoras[0].cuerpo_texto : `Conceptos fundamentales, técnicos y específicos de la carrera universitaria ${nombre_carrera}`;
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const prompt = `Actúa como un profesor universitario evaluando los conocimientos previos de un alumno de ${nombre_carrera}.
         Utiliza esta información como TU FUENTE DE VERDAD SECRETA para formular la pregunta: "${textoReferencia}"
@@ -176,12 +284,10 @@ async function hacerPreguntaDiagnostico(numeroLimpio, chatId, id_carrera, nombre
             "pregunta": "El texto de la pregunta",
             "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
             "respuesta_correcta": "El texto exacto de la opción correcta (debe coincidir con una del array)"
-        }`;
+        }
+        5. No agregues saludos.`;
 
-        const result = await model.generateContent(prompt);
-        let textoIA = await result.response.text();
-        textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
-        const datosPregunta = JSON.parse(textoIA);
+        const datosPregunta = await generarPreguntaJSON(prompt);
         const opcionesUnicas = [...new Set(datosPregunta.opciones)];
 
         if (opcionesUnicas.length < 2) {
@@ -484,6 +590,7 @@ REGLAS DE FORMATO CRÍTICAS:
 5. Las opciones deben ser breves.
 6. "respuesta_correcta" debe coincidir EXACTAMENTE con una opción del array.
 7. No agregues ningún texto antes ni después del objeto.
+8. No agregues saludos.
 
 Estructura exacta:
 
@@ -499,19 +606,7 @@ Estructura exacta:
 }
 `;
 
-        const resSiguiente =
-            await model.generateContent(promptSiguiente);
-
-        let textoIA =
-            await resSiguiente.response.text();
-
-        textoIA = textoIA
-            .replace(/```json/gi, '')
-            .replace(/```/gi, '')
-            .trim();
-
-        const datosPregunta =
-            JSON.parse(textoIA);
+        const datosPregunta = await generarPreguntaJSON(promptSiguiente);
 
         const opcionesUnicas =
             [...new Set(datosPregunta.opciones)];
@@ -565,7 +660,7 @@ const client = new Client({
     puppeteer: {
         headless: true,
         executablePath: '/usr/bin/google-chrome-stable',
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage','--disable-gpu'],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
         timeout: 60000
     }
 });
@@ -578,26 +673,26 @@ client.on('ready', async () => {
     clienteWhatsappListo = true;
     fallosWatchdog = 0;
     console.log('¡Bot funcionando!');
-if (client.pupBrowser) {
-    client.pupBrowser.once('disconnected', () => {
-        console.error(
-            '[PUPPETEER] Chrome se desconectó. Reiniciando proceso...'
-        );
+    if (client.pupBrowser) {
+        client.pupBrowser.once('disconnected', () => {
+            console.error(
+                '[PUPPETEER] Chrome se desconectó. Reiniciando proceso...'
+            );
 
-        process.exit(1);
-    });
-}
+            process.exit(1);
+        });
+    }
 
-if (client.pupPage) {
-    client.pupPage.once('error', (error) => {
-        console.error(
-            '[PUPPETEER] La página de WhatsApp falló:',
-            error
-        );
+    if (client.pupPage) {
+        client.pupPage.once('error', (error) => {
+            console.error(
+                '[PUPPETEER] La página de WhatsApp falló:',
+                error
+            );
 
-        process.exit(1);
-    });
-}
+            process.exit(1);
+        });
+    }
     const myNumberId = client.info.wid._serialized;
 
     try {
@@ -1028,7 +1123,6 @@ client.on('message', async (msg) => {
 
                 const contenido = archivos[0]?.contenido || "Contenido no disponible.";
 
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 const prompt = `Actúa como un tutor universitario empático. El estudiante está repasando el tema "${temaElegido}". 
                     Aquí tienes el material de estudio. Debes basarte ESTRICTAMENTE en esta información:
                     ---
@@ -1045,13 +1139,11 @@ client.on('message', async (msg) => {
                         "pregunta": "El texto de la pregunta",
                         "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
                         "respuesta_correcta": "El texto exacto de la opción correcta (debe coincidir con una del array)"
-                    }`;
+                    }
+                    5. No agregues saludos`;
 
                 try {
-                    const result = await model.generateContent(prompt);
-                    let textoIA = await result.response.text();
-                    textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
-                    const datosPregunta = JSON.parse(textoIA);
+                    const datosPregunta = await generarPreguntaJSON(prompt);
 
                     const opcionesUnicas = [...new Set(datosPregunta.opciones)];
                     if (opcionesUnicas.length < 2) {
@@ -1331,12 +1423,13 @@ client.on('message', async (msg) => {
 //                     "pregunta": "El texto de la pregunta",
 //                     "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"],
 //                     "respuesta_correcta": "El texto exacto de la opción correcta"
-//                 }`;
+//                 }
+//                 5. No agregues saludos.`;
 
-//             const resSiguiente = await model.generateContent(promptSiguiente);
-//             let textoIA = await resSiguiente.response.text();
-//             textoIA = textoIA.replace(/```json/gi, '').replace(/```/gi, '').trim();
-//             const datosPregunta = JSON.parse(textoIA);
+//             const datosPregunta =
+//                 await generarPreguntaJSON(
+//                     promptSiguiente
+//                 );
 
 //             const opcionesUnicas = [...new Set(datosPregunta.opciones)];
 //             if (opcionesUnicas.length < 2) {
